@@ -139,7 +139,7 @@ function About() {
 
 function MaterialPage({ item, navigate }) {
   if (!item) return <main className="page-shell"><EmptyState text="Материал не найден."/></main>;
-  return <main className="page-shell"><button className="back-link" onClick={() => navigate("catalog")}>← Вернуться в каталог</button><div className="material-detail"><div className="detail-cover"><Cover src={item.cover} title={item.title}/></div><div className="detail-copy"><span className="category">{item.category || "Методические материалы"}</span><h1>{item.title}</h1><p className="detail-description">{item.description}</p><div className="detail-meta"><span>АВТОР</span><button className="author-link" onClick={() => navigate("author", item.author)}>{item.author || "Не указан"} ↗</button></div><div className="detail-meta"><span>ДАТА ПУБЛИКАЦИИ</span><b>{item.date || "Не указана"}</b></div><div className="detail-actions"><button className="primary" onClick={() => navigate("reader", item.id)}>Читать книгу <span>→</span></button><a className="outline anchor-button" href={item.file} download>Скачать PDF ↓</a></div></div></div></main>;
+  return <main className="page-shell"><button className="back-link" onClick={() => navigate("catalog")}>← Вернуться в каталог</button><div className="material-detail"><div className="detail-cover"><Cover src={item.cover} title={item.title}/></div><div className="detail-copy"><span className="category">{item.category || "Методические материалы"}</span><h1>{item.title}</h1><p className="detail-description">{item.description}</p><div className="detail-meta"><span>АВТОР</span><button className="author-link" onClick={() => navigate("author", item.author)}>{item.author || "Не указан"} ↗</button></div><div className="detail-meta"><span>ДАТА ПУБЛИКАЦИИ</span><b>{item.date || "Не указана"}</b></div><div className="detail-actions">{item.file ? <><button className="primary" onClick={() => navigate("reader", item.id)}>Читать книгу <span>→</span></button><a className="outline anchor-button" href={item.file} download>Скачать PDF ↓</a></> : <span className="muted">Для этой публикации доступно описание без PDF-файла.</span>}</div></div></div></main>;
 }
 
 function PdfPage({ pdf, number, width }) {
@@ -208,10 +208,15 @@ function Admin({ materials, reload, navigate }) {
   const startNew = () => { setEditing("new"); setForm(blank); setNotice(""); };
   const fileToData = file => new Promise((resolve,reject) => { if (!file) return resolve(null); const reader = new FileReader(); reader.onload = () => resolve({name:file.name,type:file.type,data:String(reader.result).split(",")[1]}); reader.onerror = reject; reader.readAsDataURL(file); });
   const save = async e => {
-    e.preventDefault(); setSaving(true); setNotice("");
+    e.preventDefault();
+    const formElement = e.currentTarget;
+    setSaving(true);
+    setNotice("");
     try {
-      const coverUpload = await fileToData(e.currentTarget.coverFile.files[0]);
-      const pdfUpload = await fileToData(e.currentTarget.pdfFile.files[0]);
+      const coverFile = formElement.elements.namedItem("coverFile")?.files?.[0] || null;
+      const pdfFile = formElement.elements.namedItem("pdfFile")?.files?.[0] || null;
+      const coverUpload = await fileToData(coverFile);
+      const pdfUpload = await fileToData(pdfFile);
       const payload = {...form, coverUpload, pdfUpload};
       if (editing === "new") await request("/materials",{method:"POST",body:JSON.stringify(payload)});
       else await request(`/materials/${encodeURIComponent(editing)}`,{method:"PUT",body:JSON.stringify(payload)});
@@ -235,8 +240,8 @@ function Admin({ materials, reload, navigate }) {
         <label>Автор *<input required value={form.author} onChange={e=>setForm({...form,author:e.target.value})} placeholder="Фамилия И.О."/></label>
         <label>Описание<textarea rows="4" value={form.description} onChange={e=>setForm({...form,description:e.target.value})} placeholder="Краткое содержание и назначение материала"/></label>
         <div className="form-row"><label>Категория<input value={form.category} onChange={e=>setForm({...form,category:e.target.value})} placeholder="Методические пособия"/></label><label>Дата публикации<input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/></label></div>
-        <label>Обложка {editing && form.cover && <small>Текущая обложка сохранится, если не загружать новую.</small>}<input type="file" name="coverFile" accept="image/png,image/jpeg,image/webp"/></label>
-        <label>PDF-файл * {editing && form.file && <small>Текущий PDF сохранится, если не загружать новый.</small>}<input type="file" name="pdfFile" accept="application/pdf" required={!form.file}/></label>
+        <label>Обложка * {editing && form.cover && <small>Текущая обложка сохранится, если не загружать новую.</small>}<input type="file" name="coverFile" accept="image/png,image/jpeg,image/webp" required={!form.cover}/></label>
+        <label>PDF-файл (необязательно) {editing && form.file && <small>Текущий PDF сохранится, если не загружать новый.</small>}<input type="file" name="pdfFile" accept="application/pdf"/></label>
         <button className="primary full" disabled={saving}>{saving ? "Сохранение…" : editing === "new" ? "Опубликовать материал →" : "Сохранить изменения →"}</button>
       </form>
     </section>
