@@ -34,6 +34,9 @@ function validSession(event) {
 function sessionCookie(value, maxAge) {
   return `${COOKIE}=${encodeURIComponent(value)}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${maxAge}`;
 }
+function githubBranch() {
+  return process.env.GITHUB_BRANCH || (process.env.VERCEL_ENV === "preview" ? "vercel-migration" : "main");
+}
 function requireEnv() {
   for (const key of ["ADMIN_PASSWORD","SESSION_SECRET","GITHUB_TOKEN","GITHUB_OWNER","GITHUB_REPO"]) {
     if (!process.env[key]) throw new Error(`Не настроена переменная Netlify: ${key}`);
@@ -64,7 +67,7 @@ async function getTextFile(path) {
   return { text: Buffer.from(data.content || "", "base64").toString("utf8"), sha: data.sha };
 }
 async function putFile(path, contentBase64, message, sha = undefined) {
-  const body = { message, content: contentBase64, branch: process.env.GITHUB_BRANCH || "main" };
+  const body = { message, content: contentBase64, branch: githubBranch() };
   if (sha) body.sha = sha;
   const { response, data } = await github(path, { method: "PUT", body: JSON.stringify(body) });
   if (!response.ok) throw new Error(data.message || `Не удалось записать ${path}`);
@@ -73,7 +76,7 @@ async function putFile(path, contentBase64, message, sha = undefined) {
 async function deleteFile(path, message) {
   const { response, data } = await github(path);
   if (response.status === 404) return;
-  const result = await github(path, { method: "DELETE", body: JSON.stringify({ message, sha: data.sha, branch: process.env.GITHUB_BRANCH || "main" }) });
+  const result = await github(path, { method: "DELETE", body: JSON.stringify({ message, sha: data.sha, branch: githubBranch() }) });
   if (!result.response.ok) throw new Error(result.data.message || `Не удалось удалить ${path}`);
 }
 function decodeUpload(upload, folder, allowed) {
