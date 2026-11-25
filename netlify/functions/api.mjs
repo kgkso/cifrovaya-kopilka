@@ -5,7 +5,14 @@ const MAX_FILE_BYTES = 4 * 1024 * 1024;
 const GH_API = "https://api.github.com";
 
 function json(statusCode, body, headers = {}) {
-  return { statusCode, headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", ...headers }, body: JSON.stringify(body) };
+  return new Response(JSON.stringify(body), {
+    status: statusCode,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+      ...headers
+    }
+  });
 }
 function cookieValue(event) {
   const raw = event.headers.cookie || event.headers.Cookie || "";
