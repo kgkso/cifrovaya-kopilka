@@ -218,7 +218,7 @@ function Admin({ materials, reload, navigate }) {
       const coverUpload = await fileToData(coverFile);
       const pdfUpload = await fileToData(pdfFile);
       const payload = {...form, coverUpload, pdfUpload};
-      if (editing === "new") await request("/materials",{method:"POST",body:JSON.stringify(payload)});
+      if (!editing || editing === "new") await request("/materials",{method:"POST",body:JSON.stringify(payload)});
       else await request(`/materials/${encodeURIComponent(editing)}`,{method:"PUT",body:JSON.stringify(payload)});
       await reload(); setEditing(null); setForm(blank); setNotice("Материал успешно сохранён и опубликован."); window.scrollTo({top:0,behavior:"smooth"});
     } catch(err) { setNotice(`Ошибка: ${err.message}`); }
