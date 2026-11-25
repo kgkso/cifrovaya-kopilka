@@ -120,6 +120,12 @@ async function legacyHandler(event) {
     }
     if (path === "/logout" && method === "POST") return json(200, { authenticated: false }, { "Set-Cookie": sessionCookie("", 0) });
     if (path === "/me" && method === "GET") return json(200, { authenticated: validSession(event) });
+    // Публичное чтение каталога: список всегда берётся из того же GitHub-файла, который изменяет админ-панель.
+    if (path === "/materials" && method === "GET") {
+      requireEnv();
+      const { list } = await readMaterials();
+      return json(200, { items: list });
+    }
     if (!validSession(event)) return json(401, { error: "Необходима авторизация." });
     requireEnv();
 
