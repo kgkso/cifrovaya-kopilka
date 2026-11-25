@@ -47,6 +47,7 @@ function Footer({ navigate }) {
     <div><b>ЦИФРОВАЯ КОПИЛКА</b><p>Учреждение образования «Кобринский государственный колледж сферы обслуживания»</p></div>
     <button onClick={() => navigate("about")}>О проекте</button>
     <span>© {new Date().getFullYear()} · Педагогический опыт колледжа</span>
+    <small className="site-version">Бета · v0.1.0</small>
   </footer>;
 }
 
@@ -255,7 +256,7 @@ export default function App() {
   const [materials,setMaterials] = useState([]);
   const [loading,setLoading] = useState(true);
   const [route,setRoute] = useState({page:"home",param:null});
-  const reload = async () => { const r = await fetch("/materials.json",{cache:"no-store"}); if (!r.ok) throw new Error("Не удалось загрузить каталог"); setMaterials(await r.json()); };
+  const reload = async () => { const data = await request("/materials"); setMaterials(Array.isArray(data.items) ? data.items : []); };
   useEffect(() => { reload().catch(console.error).finally(()=>setLoading(false)); }, []);
   const navigate = (page,param=null) => { setRoute({page,param}); window.scrollTo({top:0,behavior:"instant"}); };
   const selected = materials.find(x=>String(x.id)===String(route.param));
