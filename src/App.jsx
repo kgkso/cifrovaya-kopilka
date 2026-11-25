@@ -5,7 +5,7 @@ import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
-const API = "/.netlify/functions/api";
+const API = "/api";
 const FALLBACK_COVER = "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(`
 <svg xmlns="http://www.w3.org/2000/svg" width="600" height="800" viewBox="0 0 600 800">
 <defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#123b5b"/><stop offset="1" stop-color="#2c8291"/></linearGradient></defs>
