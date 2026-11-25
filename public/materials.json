@@ -1,1 +1,12 @@
-[]
+[
+  {
+    "id": "f5d782d0-9a5e-4e20-8bb0-2ed44152c572",
+    "title": "Пример",
+    "description": "Пример",
+    "author": "Иванов",
+    "category": "Методические пособия",
+    "date": "2026-11-25",
+    "cover": "/uploads/covers/6470b127-a42b-4569-b5aa-940e5a7e48a2.png",
+    "file": ""
+  }
+]
