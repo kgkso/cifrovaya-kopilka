@@ -102,11 +102,11 @@ function checkOrigin(event) {
   const host = event.headers.host;
   try { return new URL(origin).host === host; } catch { return false; }
 }
-export default async (event) => {
+async function legacyHandler(event) {
   try {
     const method = event.httpMethod;
     const path = (event.path || "").replace(/^.*\/api/, "").replace(/^\/\.netlify\/functions\/api/, "") || "/";
-    if (method === "OPTIONS") return { statusCode: 204, headers: { "Access-Control-Allow-Origin": "null" } };
+    if (method === "OPTIONS") return new Response(null, { status: 204 });
     if (!checkOrigin(event)) return json(403, { error: "Запрос отклонён: неверный источник." });
     if (path === "/login" && method === "POST") {
       requireEnv();
@@ -184,4 +184,18 @@ export default async (event) => {
     console.error(error);
     return json(500, { error: error.message || "Внутренняя ошибка сервера." });
   }
+}
+export default async (request) => {
+  const headers = Object.fromEntries(request.headers.entries());
+
+  const event = {
+    httpMethod: request.method,
+    path: new URL(request.url).pathname,
+    headers,
+    body: ["GET", "HEAD"].includes(request.method)
+      ? null
+      : await request.text()
+  };
+
+  return await legacyHandler(event);
 };
