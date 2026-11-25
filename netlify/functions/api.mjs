@@ -127,8 +127,8 @@ async function legacyHandler(event) {
       const body = JSON.parse(event.body || "{}");
       if (!body.title?.trim() || !body.author?.trim()) return json(400, { error: "Укажите название и автора." });
       const pdf = decodeUpload(body.pdfUpload, "books", ["application/pdf"]);
-      if (!pdf && !body.file) return json(400, { error: "Загрузите PDF-файл." });
       const cover = decodeUpload(body.coverUpload, "covers", ["image/jpeg","image/png","image/webp"]);
+      if (!cover) return json(400, { error: "Загрузите изображение обложки." });
       if (pdf) await putFile(pdf.path, pdf.buffer.toString("base64"), `Добавлен PDF: ${body.title}`);
       if (cover) await putFile(cover.path, cover.buffer.toString("base64"), `Добавлена обложка: ${body.title}`);
       const { list, sha } = await readMaterials();
@@ -164,6 +164,7 @@ async function legacyHandler(event) {
       if (!body.title?.trim() || !body.author?.trim()) return json(400, { error: "Укажите название и автора." });
       const pdf = decodeUpload(body.pdfUpload, "books", ["application/pdf"]);
       const cover = decodeUpload(body.coverUpload, "covers", ["image/jpeg","image/png","image/webp"]);
+      if (!cover && !old.cover) return json(400, { error: "Загрузите изображение обложки." });
       if (pdf) await putFile(pdf.path, pdf.buffer.toString("base64"), `Обновлён PDF: ${body.title}`);
       if (cover) await putFile(cover.path, cover.buffer.toString("base64"), `Обновлена обложка: ${body.title}`);
       list[index] = {
