@@ -63,7 +63,7 @@ function MaterialCard({ item, navigate, authors=[] }) {
     <div className="material-info">
       <span className="category">{item.category || "Методические материалы"}</span>
       <h3><button className="title-link" onClick={() => navigate("material", item.id)}>{item.title}</button></h3>
-      <p>{item.description || "Описание материала пока не добавлено."}</p>
+      <div className="material-preview rich-content">{item.description ? <div dangerouslySetInnerHTML={{__html:safeRichHtml(item.description)}}/> : "Описание материала пока не добавлено."}</div>
       <button className="author-link" onClick={() => navigate("author", item.authorId || item.author)}>Автор: {authorName(item, authors)}</button>
       <button className="read-link" onClick={() => navigate("material", item.id)}>Открыть материал <span>→</span></button>
     </div>
