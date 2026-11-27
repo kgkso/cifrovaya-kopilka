@@ -4,7 +4,7 @@ import { getStore } from "@netlify/blobs";
 const COOKIE = "kopilka_admin";
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
 const GH_API = "https://api.github.com";
-const STORE = () => getStore("kopilka-production", { region: "eu-central-1" });
+const STORE = () => getStore("kopilka-production");
 
 function json(status, body, headers = {}) {
   return new Response(JSON.stringify(body), {
