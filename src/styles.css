@@ -59,3 +59,11 @@
 @media(max-width:1000px){.announcements-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:620px){.announcements-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.announcement-cover{height:135px}.announcement-body{padding:11px}.announcement-body h2{font-size:13px}.announcements-embed{padding:16px}.announcements-foot{font-size:7px}}
 @media(max-width:380px){.announcements-grid{grid-template-columns:1fr}.announcement-cover{height:190px}}
+
+
+/* Formatted description preview in material cards */
+.material-preview{font-size:12px;line-height:1.7;color:#7c8b91;min-height:42px;max-height:4.9em;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3}
+.material-preview p{margin:0}
+.material-preview ul,.material-preview ol{padding-left:18px;margin:0}
+.material-preview h2,.material-preview h3{font:600 12px/1.5 Manrope;color:inherit;margin:0}
+.material-preview blockquote{margin:0;padding-left:8px;border-left:2px solid var(--teal)}
