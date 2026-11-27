@@ -150,7 +150,7 @@ async function legacyHandler(event) {
         photo: String(body.photo || "")
       };
       authors.push(author);
-      await putFile("public/authors.json", Buffer.from(JSON.stringify(authors,null,2)+"\\n").toString("base64"), `Добавлен автор: ${author.name}`, file.sha);
+      await putFile("public/authors.json", Buffer.from(JSON.stringify(authors,null,2)+"\n").toString("base64"), `Добавлен автор: ${author.name}`, file.sha);
       return json(201, { item: author });
     }
     const authorMatch = path.match(/^\\/authors\\/([^/]+)$/);
@@ -162,9 +162,9 @@ async function legacyHandler(event) {
       if (index < 0) return json(404, { error: "Автор не найден." });
       if (method === "DELETE") {
         const { list } = await readMaterials();
-        if (list.some(x => x.authorId === id)) return json(409, { error: "Нельзя удалить автора, пока к нему привязаны публикации." });
+        if (list.some(x => x.authorId === id || (!x.authorId && x.author === authors[index].name))) return json(409, { error: "Нельзя удалить автора, пока к нему привязаны публикации." });
         authors.splice(index,1);
-        await putFile("public/authors.json", Buffer.from(JSON.stringify(authors,null,2)+"\\n").toString("base64"), "Удалён автор", file.sha);
+        await putFile("public/authors.json", Buffer.from(JSON.stringify(authors,null,2)+"\n").toString("base64"), "Удалён автор", file.sha);
         return json(200, { deleted: true });
       }
       const body = JSON.parse(event.body || "{}");
@@ -176,7 +176,7 @@ async function legacyHandler(event) {
         bio: String(body.bio || "").slice(0,5000),
         photo: String(body.photo || authors[index].photo || "")
       };
-      await putFile("public/authors.json", Buffer.from(JSON.stringify(authors,null,2)+"\\n").toString("base64"), `Обновлён автор: ${authors[index].name}`, file.sha);
+      await putFile("public/authors.json", Buffer.from(JSON.stringify(authors,null,2)+"\n").toString("base64"), `Обновлён автор: ${authors[index].name}`, file.sha);
       return json(200, { item: authors[index] });
     }
     if (path === "/materials" && method === "POST") {
