@@ -103,7 +103,7 @@ function Home({ materials, authors, navigate }) {
 
 function AnnouncementsEmbed({ materials, authors }) {
   const latest = [...materials].sort((a,b) => (b.date || "").localeCompare(a.date || "")).slice(0,5);
-  const excerpt = value => String(value || "").replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").replace(/\\s+/g, " ").trim();
+  const excerpt = value => String(value || "").replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
   return <main className="announcements-embed">
     <div className="announcements-head"><span className="announcements-kicker">ЦИФРОВАЯ КОПИЛКА · НОВОЕ</span><h1>Последние публикации</h1><p>Свежие методические материалы преподавателей и мастеров производственного обучения.</p></div>
     {latest.length ? <div className="announcements-grid">{latest.map((item,index) => <article className="announcement-card" key={item.id}>
@@ -259,7 +259,7 @@ export default function App() {
   const [materials,setMaterials] = useState([]);
   const [authors,setAuthors] = useState([]);
   const [loading,setLoading] = useState(true);
-  const [route,setRoute] = useState(() => { const params = new URLSearchParams(window.location.search); const path = window.location.pathname.replace(/\\/+$/, "") || "/"; if (path === "/announcements") return { page:"announcements", param:null }; if (params.has("material")) return { page:"material", param:params.get("material") }; return { page:"home", param:null }; });
+  const [route,setRoute] = useState(() => { const params = new URLSearchParams(window.location.search); const path = window.location.pathname.replace(/\/+$/, "") || "/"; if (path === "/announcements") return { page:"announcements", param:null }; if (params.has("material")) return { page:"material", param:params.get("material") }; return { page:"home", param:null }; });
   const reload = async () => { const data = await request("/materials"); setMaterials(Array.isArray(data.items) ? data.items : []); };
   const reloadAuthors = async () => { const data = await request("/authors"); setAuthors(Array.isArray(data.items) ? data.items : []); };
   useEffect(() => { Promise.all([reload(),reloadAuthors()]).catch(console.error).finally(()=>setLoading(false)); }, []);
