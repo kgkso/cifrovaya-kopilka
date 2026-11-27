@@ -51,7 +51,7 @@ async function getLegacyText(path, event) {
   return await response.text();
 }
 
-// Первый запрос переносит существующие JSON-файлы из GitHub в постоянное хранилище Netlify.
+// Первый запрос переносит существующие JSON-файлы из текущего деплоя в постоянное хранилище Netlify.
 // После переноса все изменения выполняются только в Blobs и не создают Git-коммиты.
 async function readCollection(name, legacyPath, event) {
   const store = STORE();
@@ -105,7 +105,7 @@ async function serveBlob(key, fallbackType) {
       "Content-Type": contentType,
       "Content-Length": String(result.data.byteLength),
       "Cache-Control": "public, max-age=3600",
-      "Content-Disposition": contentType === "application/pdf" ? "inline" : "inline"
+      "Content-Disposition": "inline"
     }
   });
 }
