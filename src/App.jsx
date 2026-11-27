@@ -198,10 +198,10 @@ function Reader({ item, navigate }) {
 
 function safeRichHtml(value="") {
   const input=String(value||"");
-  if(typeof window==="undefined")return input.replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\\n/g,"<br>");
+  if(typeof window==="undefined")return input.replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br>");
   const doc=new DOMParser().parseFromString(input,"text/html");
   const allowed=new Set(["P","BR","STRONG","B","EM","I","U","UL","OL","LI","A","H2","H3","BLOCKQUOTE"]);
-  const walk=node=>{[...node.childNodes].forEach(child=>{if(child.nodeType===1){if(!allowed.has(child.tagName)){child.replaceWith(...child.childNodes);return;}[...child.attributes].forEach(attr=>{if(child.tagName!=="A"||attr.name!=="href"||!/^https?:\\/\\//i.test(attr.value)){child.removeAttribute(attr.name);}});if(child.tagName==="A"){child.setAttribute("target","_blank");child.setAttribute("rel","noopener noreferrer");}walk(child);}else if(child.nodeType!==3)child.remove();});};
+  const walk=node=>{[...node.childNodes].forEach(child=>{if(child.nodeType===1){if(!allowed.has(child.tagName)){child.replaceWith(...child.childNodes);return;}[...child.attributes].forEach(attr=>{if(child.tagName!=="A"||attr.name!=="href"||!/^https?:\/\//i.test(attr.value)){child.removeAttribute(attr.name);}});if(child.tagName==="A"){child.setAttribute("target","_blank");child.setAttribute("rel","noopener noreferrer");}walk(child);}else if(child.nodeType!==3)child.remove();});};
   walk(doc.body);return doc.body.innerHTML;
 }
 
@@ -209,7 +209,7 @@ function RichTextEditor({ value, onChange, label="Описание" }) {
   const ref=useRef(null);
   useEffect(()=>{if(ref.current && ref.current.innerHTML!==safeRichHtml(value))ref.current.innerHTML=safeRichHtml(value);},[value]);
   const command=(cmd,arg=null)=>{ref.current?.focus();document.execCommand(cmd,false,arg);onChange(ref.current?.innerHTML||"");};
-  const addLink=()=>{const url=window.prompt("Введите адрес ссылки (https://...)");if(!url)return;const safe=/^https?:\\/\\//i.test(url.trim())?url.trim():"https://"+url.trim();command("createLink",safe);};
+  const addLink=()=>{const url=window.prompt("Введите адрес ссылки (https://...)");if(!url)return;const safe=/^https?:\/\//i.test(url.trim())?url.trim():"https://"+url.trim();command("createLink",safe);};
   return <label className="rich-editor-label">{label}<div className="rich-editor"><div className="rich-toolbar"><button type="button" onClick={()=>command("bold")}><b>B</b></button><button type="button" onClick={()=>command("italic")}><i>I</i></button><button type="button" onClick={()=>command("underline")}><u>U</u></button><button type="button" onClick={()=>command("insertUnorderedList")}>• Список</button><button type="button" onClick={()=>command("insertOrderedList")}>1. Список</button><button type="button" onClick={addLink}>↗ Ссылка</button></div><div ref={ref} className="rich-editor-area" contentEditable suppressContentEditableWarning onInput={e=>onChange(e.currentTarget.innerHTML)} data-placeholder="Введите описание материала..."/></div></label>;
 }
 
