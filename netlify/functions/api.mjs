@@ -153,7 +153,7 @@ async function legacyHandler(event) {
       await putFile("public/authors.json", Buffer.from(JSON.stringify(authors,null,2)+"\n").toString("base64"), `Добавлен автор: ${author.name}`, file.sha);
       return json(201, { item: author });
     }
-    const authorMatch = path.match(/^\\/authors\\/([^/]+)$/);
+    const authorMatch = path.match(/^\/authors\/([^/]+)$/);
     if (authorMatch && ["PUT","DELETE"].includes(method)) {
       const id = decodeURIComponent(authorMatch[1]);
       const file = await getTextFile("public/authors.json");
