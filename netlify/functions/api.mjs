@@ -121,6 +121,7 @@ async function legacyHandler(event) {
     if (path === "/logout" && method === "POST") return json(200, { authenticated: false }, { "Set-Cookie": sessionCookie("", 0) });
     if (path === "/me" && method === "GET") return json(200, { authenticated: validSession(event) });
     if (path === "/authors" && method === "GET") {
+      requireEnv();
       const file = await getTextFile("public/authors.json");
       let authors;
       try { authors = JSON.parse(file.text); } catch { throw new Error("Файл authors.json содержит некорректный JSON"); }
