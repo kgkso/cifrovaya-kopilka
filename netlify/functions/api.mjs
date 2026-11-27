@@ -120,6 +120,12 @@ async function legacyHandler(event) {
     }
     if (path === "/logout" && method === "POST") return json(200, { authenticated: false }, { "Set-Cookie": sessionCookie("", 0) });
     if (path === "/me" && method === "GET") return json(200, { authenticated: validSession(event) });
+    if (path === "/authors" && method === "GET") {
+      const file = await getTextFile("public/authors.json");
+      let authors;
+      try { authors = JSON.parse(file.text); } catch { throw new Error("Файл authors.json содержит некорректный JSON"); }
+      return json(200, { items: Array.isArray(authors) ? authors : [] });
+    }
     // Публичное чтение каталога: список всегда берётся из того же GitHub-файла, который изменяет админ-панель.
     if (path === "/materials" && method === "GET") {
       requireEnv();
@@ -129,9 +135,56 @@ async function legacyHandler(event) {
     if (!validSession(event)) return json(401, { error: "Необходима авторизация." });
     requireEnv();
 
+    if (path === "/authors" && method === "POST") {
+      const body = JSON.parse(event.body || "{}");
+      if (!body.name?.trim()) return json(400, { error: "Укажите ФИО автора." });
+      const file = await getTextFile("public/authors.json");
+      const authors = JSON.parse(file.text);
+      const author = {
+        id: crypto.randomUUID(),
+        name: String(body.name).trim().slice(0,160),
+        position: String(body.position || "").trim().slice(0,200),
+        qualification: String(body.qualification || "").trim().slice(0,200),
+        bio: String(body.bio || "").slice(0,5000),
+        photo: String(body.photo || "")
+      };
+      authors.push(author);
+      await putFile("public/authors.json", Buffer.from(JSON.stringify(authors,null,2)+"\\n").toString("base64"), `Добавлен автор: ${author.name}`, file.sha);
+      return json(201, { item: author });
+    }
+    const authorMatch = path.match(/^\\/authors\\/([^/]+)$/);
+    if (authorMatch && ["PUT","DELETE"].includes(method)) {
+      const id = decodeURIComponent(authorMatch[1]);
+      const file = await getTextFile("public/authors.json");
+      const authors = JSON.parse(file.text);
+      const index = authors.findIndex(x => String(x.id) === id);
+      if (index < 0) return json(404, { error: "Автор не найден." });
+      if (method === "DELETE") {
+        const { list } = await readMaterials();
+        if (list.some(x => x.authorId === id)) return json(409, { error: "Нельзя удалить автора, пока к нему привязаны публикации." });
+        authors.splice(index,1);
+        await putFile("public/authors.json", Buffer.from(JSON.stringify(authors,null,2)+"\\n").toString("base64"), "Удалён автор", file.sha);
+        return json(200, { deleted: true });
+      }
+      const body = JSON.parse(event.body || "{}");
+      if (!body.name?.trim()) return json(400, { error: "Укажите ФИО автора." });
+      authors[index] = { ...authors[index],
+        name: String(body.name).trim().slice(0,160),
+        position: String(body.position || "").trim().slice(0,200),
+        qualification: String(body.qualification || "").trim().slice(0,200),
+        bio: String(body.bio || "").slice(0,5000),
+        photo: String(body.photo || authors[index].photo || "")
+      };
+      await putFile("public/authors.json", Buffer.from(JSON.stringify(authors,null,2)+"\\n").toString("base64"), `Обновлён автор: ${authors[index].name}`, file.sha);
+      return json(200, { item: authors[index] });
+    }
     if (path === "/materials" && method === "POST") {
       const body = JSON.parse(event.body || "{}");
-      if (!body.title?.trim() || !body.author?.trim()) return json(400, { error: "Укажите название и автора." });
+      if (!body.title?.trim() || !body.authorId) return json(400, { error: "Укажите название и выберите автора." });
+      const authorFile = await getTextFile("public/authors.json");
+      const authors = JSON.parse(authorFile.text);
+      const author = authors.find(x => x.id === body.authorId);
+      if (!author) return json(400, { error: "Выбранный автор не найден." });
       const pdf = decodeUpload(body.pdfUpload, "books", ["application/pdf"]);
       const cover = decodeUpload(body.coverUpload, "covers", ["image/jpeg","image/png","image/webp"]);
       if (!cover) return json(400, { error: "Загрузите изображение обложки." });
@@ -141,8 +194,10 @@ async function legacyHandler(event) {
       const item = {
         id: crypto.randomUUID(),
         title: String(body.title).trim().slice(0, 200),
-        description: String(body.description || "").slice(0, 3000),
-        author: String(body.author).trim().slice(0, 160),
+        description: String(body.description || "").slice(0, 10000),
+        resourceUrl: String(body.resourceUrl || "").trim().slice(0, 2000),
+        authorId: author.id,
+        author: author.name,
         category: String(body.category || "Методические материалы").trim().slice(0, 100),
         date: String(body.date || new Date().toISOString().slice(0,10)).slice(0,10),
         cover: cover ? `/${cover.path.replace(/^public\//,"")}` : "",
@@ -167,7 +222,11 @@ async function legacyHandler(event) {
         return json(200, { deleted: true });
       }
       const body = JSON.parse(event.body || "{}");
-      if (!body.title?.trim() || !body.author?.trim()) return json(400, { error: "Укажите название и автора." });
+      if (!body.title?.trim() || !body.authorId) return json(400, { error: "Укажите название и выберите автора." });
+      const authorFile = await getTextFile("public/authors.json");
+      const authors = JSON.parse(authorFile.text);
+      const author = authors.find(x => x.id === body.authorId);
+      if (!author) return json(400, { error: "Выбранный автор не найден." });
       const pdf = decodeUpload(body.pdfUpload, "books", ["application/pdf"]);
       const cover = decodeUpload(body.coverUpload, "covers", ["image/jpeg","image/png","image/webp"]);
       if (!cover && !old.cover) return json(400, { error: "Загрузите изображение обложки." });
@@ -176,8 +235,10 @@ async function legacyHandler(event) {
       list[index] = {
         ...old,
         title: String(body.title).trim().slice(0, 200),
-        description: String(body.description || "").slice(0, 3000),
-        author: String(body.author).trim().slice(0, 160),
+        description: String(body.description || "").slice(0, 10000),
+        resourceUrl: String(body.resourceUrl || "").trim().slice(0, 2000),
+        authorId: author.id,
+        author: author.name,
         category: String(body.category || "Методические материалы").trim().slice(0, 100),
         date: String(body.date || old.date || "").slice(0,10),
         cover: cover ? `/${cover.path.replace(/^public\//,"")}` : old.cover,
