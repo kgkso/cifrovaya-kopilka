@@ -120,6 +120,24 @@ async function legacyHandler(event) {
     }
     if (path === "/logout" && method === "POST") return json(200, { authenticated: false }, { "Set-Cookie": sessionCookie("", 0) });
     if (path === "/me" && method === "GET") return json(200, { authenticated: validSession(event) });
+    if (path.startsWith("/pdf/") && method === "GET") {
+      requireEnv();
+      const relative = safePath(path.slice(5));
+      if (!relative.startsWith("uploads/books/") || !relative.endsWith(".pdf")) return json(404, { error: "PDF не найден." });
+      const { response, data } = await github(`public/${relative}`);
+      if (response.status === 404) return json(404, { error: "PDF-файл отсутствует в хранилище GitHub." });
+      let bytes;
+      if (data.content && data.encoding === "base64") {
+        bytes = Buffer.from(data.content.replace(/\\n/g, ""), "base64");
+      } else if (data.download_url) {
+        const raw = await fetch(data.download_url, { headers: { "Authorization": `Bearer ${process.env.GITHUB_TOKEN}`, "Accept": "application/vnd.github.raw" } });
+        if (!raw.ok) return json(502, { error: "Не удалось получить PDF из GitHub." });
+        bytes = Buffer.from(await raw.arrayBuffer());
+      } else {
+        return json(502, { error: "GitHub не предоставил содержимое PDF." });
+      }
+      return new Response(bytes, { status: 200, headers: { "Content-Type": "application/pdf", "Content-Length": String(bytes.length), "Cache-Control": "public, max-age=300", "Content-Disposition": "inline" } });
+    }
     if (path === "/authors" && method === "GET") {
       requireEnv();
       const file = await getTextFile("public/authors.json");
