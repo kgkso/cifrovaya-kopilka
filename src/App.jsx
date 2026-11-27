@@ -101,6 +101,19 @@ function Home({ materials, authors, navigate }) {
   </>;
 }
 
+function AnnouncementsEmbed({ materials, authors }) {
+  const latest = [...materials].sort((a,b) => (b.date || "").localeCompare(a.date || "")).slice(0,5);
+  const excerpt = value => String(value || "").replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").replace(/\\s+/g, " ").trim();
+  return <main className="announcements-embed">
+    <div className="announcements-head"><span className="announcements-kicker">ЦИФРОВАЯ КОПИЛКА · НОВОЕ</span><h1>Последние публикации</h1><p>Свежие методические материалы преподавателей и мастеров производственного обучения.</p></div>
+    {latest.length ? <div className="announcements-grid">{latest.map((item,index) => <article className="announcement-card" key={item.id}>
+      <a className="announcement-cover" href={`/?material=${encodeURIComponent(item.id)}`} target="_blank" rel="noopener noreferrer"><img src={item.cover || FALLBACK_COVER} alt="" onError={e=>{e.currentTarget.src=FALLBACK_COVER;}}/><span className="announcement-number">0{index+1}</span></a>
+      <div className="announcement-body"><span className="announcement-category">{item.category || "Методические материалы"}</span><h2><a href={`/?material=${encodeURIComponent(item.id)}`} target="_blank" rel="noopener noreferrer">{item.title}</a></h2><p>{excerpt(item.description) || "Откройте публикацию, чтобы ознакомиться с материалом."}</p><div className="announcement-meta"><span>{authorName(item,authors)}</span><time>{item.date || ""}</time></div><a className="announcement-open" href={`/?material=${encodeURIComponent(item.id)}`} target="_blank" rel="noopener noreferrer">Подробнее <span>↗</span></a></div>
+    </article>)}</div> : <div className="announcements-empty">Новые публикации появятся здесь после добавления материалов в копилку.</div>}
+    <div className="announcements-foot"><span>КОБРИНСКИЙ ГОСУДАРСТВЕННЫЙ КОЛЛЕДЖ СФЕРЫ ОБСЛУЖИВАНИЯ</span><span>ПЕДАГОГИЧЕСКИЙ ОПЫТ · ОБМЕН · РАЗВИТИЕ</span></div>
+  </main>;
+}
+
 function EmptyState({ text }) { return <div className="empty-state"><div className="empty-icon">⌕</div><h3>Пока здесь нет материалов</h3><p>{text}</p></div>; }
 
 function Catalog({ materials, authors, navigate }) {
@@ -246,7 +259,7 @@ export default function App() {
   const [materials,setMaterials] = useState([]);
   const [authors,setAuthors] = useState([]);
   const [loading,setLoading] = useState(true);
-  const [route,setRoute] = useState({page:"home",param:null});
+  const [route,setRoute] = useState(() => { const params = new URLSearchParams(window.location.search); const path = window.location.pathname.replace(/\\/+$/, "") || "/"; if (path === "/announcements") return { page:"announcements", param:null }; if (params.has("material")) return { page:"material", param:params.get("material") }; return { page:"home", param:null }; });
   const reload = async () => { const data = await request("/materials"); setMaterials(Array.isArray(data.items) ? data.items : []); };
   const reloadAuthors = async () => { const data = await request("/authors"); setAuthors(Array.isArray(data.items) ? data.items : []); };
   useEffect(() => { Promise.all([reload(),reloadAuthors()]).catch(console.error).finally(()=>setLoading(false)); }, []);
@@ -255,6 +268,7 @@ export default function App() {
   let content;
   if (loading) content = <div className="loading page-shell">Загружаем цифровую копилку…</div>;
   else switch(route.page) {
+    case "announcements": content=<AnnouncementsEmbed materials={materials} authors={authors}/>; break;
     case "catalog": content=<Catalog materials={materials} authors={authors} navigate={navigate}/>; break;
     case "authors": content=<Authors materials={materials} authors={authors} navigate={navigate}/>; break;
     case "author": content=<AuthorPage authorId={route.param} authors={authors} materials={materials} navigate={navigate}/>; break;
@@ -264,5 +278,6 @@ export default function App() {
     case "admin": content=<Admin materials={materials} authors={authors} reload={reload} reloadAuthors={reloadAuthors} navigate={navigate}/>; break;
     default: content=<Home materials={materials} authors={authors} navigate={navigate}/>;
   }
+  if (route.page === "announcements") return content;
   return <><Header page={route.page} navigate={navigate}/>{content}<Footer navigate={navigate}/></>;
 }
