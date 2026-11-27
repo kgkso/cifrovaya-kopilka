@@ -1,17 +1,15 @@
 import crypto from "node:crypto";
+import { getStore } from "@netlify/blobs";
 
 const COOKIE = "kopilka_admin";
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
 const GH_API = "https://api.github.com";
+const STORE = () => getStore("kopilka-production", { region: "eu-central-1" });
 
-function json(statusCode, body, headers = {}) {
+function json(status, body, headers = {}) {
   return new Response(JSON.stringify(body), {
-    status: statusCode,
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "no-store",
-      ...headers
-    }
+    status,
+    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", ...headers }
   });
 }
 function cookieValue(event) {
@@ -34,67 +32,66 @@ function validSession(event) {
 function sessionCookie(value, maxAge) {
   return `${COOKIE}=${encodeURIComponent(value)}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${maxAge}`;
 }
-function requireEnv() {
-  for (const key of ["ADMIN_PASSWORD","SESSION_SECRET","GITHUB_TOKEN","GITHUB_OWNER","GITHUB_REPO"]) {
+function requireAuthEnv() {
+  for (const key of ["ADMIN_PASSWORD", "SESSION_SECRET"]) {
     if (!process.env[key]) throw new Error(`Не настроена переменная Netlify: ${key}`);
   }
 }
+function requireGithubEnv() {
+  for (const key of ["GITHUB_TOKEN", "GITHUB_OWNER", "GITHUB_REPO"]) {
+    if (!process.env[key]) throw new Error(`Для первичного переноса данных не настроена переменная Netlify: ${key}`);
+  }
+}
 function safePath(value) {
-  if (!value || value.startsWith("/") || value.split("/").includes("..") || !/^[a-zA-Z0-9._/-]+$/.test(value)) throw new Error("Некорректный путь файла");
+  if (!value || value.startsWith("/") || value.split("/").includes("..") || !/^[a-zA-Z0-9._/-]+$/.test(value)) {
+    throw new Error("Некорректный путь файла");
+  }
   return value;
 }
-async function github(path, options = {}) {
+async function github(path) {
+  requireGithubEnv();
   const response = await fetch(`${GH_API}/repos/${process.env.GITHUB_OWNER}/${process.env.GITHUB_REPO}/contents/${path}`, {
-    ...options,
     headers: {
       "Authorization": `Bearer ${process.env.GITHUB_TOKEN}`,
       "Accept": "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-      "Content-Type": "application/json",
-      ...(options.headers || {})
+      "X-GitHub-Api-Version": "2022-11-28"
     }
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok && response.status !== 404) throw new Error(data.message || `GitHub API: ${response.status}`);
   return { response, data };
 }
-async function getTextFile(path) {
+async function getLegacyText(path) {
   const { response, data } = await github(path);
-  if (response.status === 404) return { text: "[]\n", sha: null };
-  return { text: Buffer.from(data.content || "", "base64").toString("utf8"), sha: data.sha };
+  if (response.status === 404) return "[]\n";
+  if (data.encoding !== "base64" || !data.content) throw new Error(`Не удалось прочитать старый файл ${path}`);
+  return Buffer.from(data.content, "base64").toString("utf8");
 }
-async function putFile(path, contentBase64, message, sha = undefined) {
-  const body = { message, content: contentBase64, branch: process.env.GITHUB_BRANCH || "main" };
-  if (sha) body.sha = sha;
-  const { response, data } = await github(path, { method: "PUT", body: JSON.stringify(body) });
-  if (!response.ok) throw new Error(data.message || `Не удалось записать ${path}`);
-  return data;
+
+// Первый запрос переносит существующие JSON-файлы из GitHub в постоянное хранилище Netlify.
+// После переноса все изменения выполняются только в Blobs и не создают Git-коммиты.
+async function readCollection(name, legacyPath) {
+  const store = STORE();
+  const current = await store.get(name, { type: "json", consistency: "strong" });
+  if (current !== null) {
+    if (!Array.isArray(current)) throw new Error(`Хранилище ${name} содержит некорректные данные`);
+    return current;
+  }
+  let legacy;
+  try { legacy = JSON.parse(await getLegacyText(legacyPath)); }
+  catch (error) { throw new Error(`Не удалось перенести ${legacyPath}: ${error.message}`); }
+  if (!Array.isArray(legacy)) throw new Error(`Файл ${legacyPath} должен содержать массив`);
+  try {
+    await store.setJSON(name, legacy, { onlyIfNew: true });
+    return legacy;
+  } catch {
+    const winner = await store.get(name, { type: "json", consistency: "strong" });
+    if (Array.isArray(winner)) return winner;
+    throw new Error("Не удалось инициализировать хранилище публикаций.");
+  }
 }
-async function deleteFile(path, message) {
-  const { response, data } = await github(path);
-  if (response.status === 404) return;
-  const result = await github(path, { method: "DELETE", body: JSON.stringify({ message, sha: data.sha, branch: process.env.GITHUB_BRANCH || "main" }) });
-  if (!result.response.ok) throw new Error(result.data.message || `Не удалось удалить ${path}`);
-}
-function decodeUpload(upload, folder, allowed) {
-  if (!upload) return null;
-  if (!allowed.includes(upload.type)) throw new Error("Недопустимый тип загружаемого файла");
-  const buffer = Buffer.from(upload.data || "", "base64");
-  if (!buffer.length || buffer.length > MAX_FILE_BYTES) throw new Error("Файл пустой или превышает лимит 4 МБ");
-  const ext = upload.type === "application/pdf" ? "pdf" : upload.type === "image/png" ? "png" : upload.type === "image/webp" ? "webp" : "jpg";
-  const name = `${crypto.randomUUID()}.${ext}`;
-  return { path: `public/uploads/${folder}/${name}`, buffer };
-}
-async function readMaterials() {
-  const file = await getTextFile("public/materials.json");
-  let list;
-  try { list = JSON.parse(file.text); } catch { throw new Error("Файл materials.json содержит некорректный JSON"); }
-  if (!Array.isArray(list)) throw new Error("Формат materials.json должен быть массивом");
-  return { list, sha: file.sha };
-}
-async function saveMaterials(list, sha, message) {
-  const content = Buffer.from(JSON.stringify(list, null, 2) + "\n").toString("base64");
-  await putFile("public/materials.json", content, message, sha);
+async function saveCollection(name, items) {
+  await STORE().setJSON(name, items);
 }
 function checkOrigin(event) {
   const origin = event.headers.origin;
@@ -102,14 +99,55 @@ function checkOrigin(event) {
   const host = event.headers.host;
   try { return new URL(origin).host === host; } catch { return false; }
 }
-async function legacyHandler(event) {
+function decodeUpload(upload, folder, allowed) {
+  if (!upload) return null;
+  if (!allowed.includes(upload.type)) throw new Error("Недопустимый тип загружаемого файла");
+  const buffer = Buffer.from(upload.data || "", "base64");
+  if (!buffer.length || buffer.length > MAX_FILE_BYTES) throw new Error("Файл пустой или превышает лимит 4 МБ");
+  const ext = upload.type === "application/pdf" ? "pdf" : upload.type === "image/png" ? "png" : upload.type === "image/webp" ? "webp" : "jpg";
+  return { key: `files/${folder}/${crypto.randomUUID()}.${ext}`, buffer, type: upload.type, name: String(upload.name || "").slice(0, 180) };
+}
+async function saveUpload(upload) {
+  if (!upload) return null;
+  await STORE().set(upload.key, upload.buffer, { metadata: { contentType: upload.type, fileName: upload.name } });
+  return upload;
+}
+async function serveBlob(key, fallbackType) {
+  const result = await STORE().getWithMetadata(key, { type: "arrayBuffer", consistency: "strong" });
+  if (!result || !result.data) return null;
+  const contentType = result.metadata?.contentType || fallbackType;
+  return new Response(result.data, {
+    status: 200,
+    headers: {
+      "Content-Type": contentType,
+      "Content-Length": String(result.data.byteLength),
+      "Cache-Control": "public, max-age=3600",
+      "Content-Disposition": contentType === "application/pdf" ? "inline" : "inline"
+    }
+  });
+}
+async function serveLegacyPdf(relative) {
+  const { response, data } = await github(`public/${relative}`);
+  if (response.status === 404) return json(404, { error: "PDF-файл отсутствует в старом хранилище." });
+  let bytes;
+  if (data.content && data.encoding === "base64") bytes = Buffer.from(data.content.replace(/\\n/g, ""), "base64");
+  else if (data.download_url) {
+    const raw = await fetch(data.download_url, { headers: { "Authorization": `Bearer ${process.env.GITHUB_TOKEN}`, "Accept": "application/vnd.github.raw" } });
+    if (!raw.ok) return json(502, { error: "Не удалось получить PDF из GitHub." });
+    bytes = Buffer.from(await raw.arrayBuffer());
+  } else return json(502, { error: "GitHub не предоставил содержимое PDF." });
+  return new Response(bytes, { status: 200, headers: { "Content-Type": "application/pdf", "Content-Length": String(bytes.length), "Cache-Control": "public, max-age=300", "Content-Disposition": "inline" } });
+}
+
+async function handler(event) {
   try {
     const method = event.httpMethod;
     const path = (event.path || "").replace(/^.*\/api/, "").replace(/^\/\.netlify\/functions\/api/, "") || "/";
     if (method === "OPTIONS") return new Response(null, { status: 204 });
     if (!checkOrigin(event)) return json(403, { error: "Запрос отклонён: неверный источник." });
+
     if (path === "/login" && method === "POST") {
-      requireEnv();
+      requireAuthEnv();
       const body = JSON.parse(event.body || "{}");
       const supplied = Buffer.from(String(body.password || ""));
       const expected = Buffer.from(process.env.ADMIN_PASSWORD);
@@ -120,96 +158,89 @@ async function legacyHandler(event) {
     }
     if (path === "/logout" && method === "POST") return json(200, { authenticated: false }, { "Set-Cookie": sessionCookie("", 0) });
     if (path === "/me" && method === "GET") return json(200, { authenticated: validSession(event) });
+
+    if (path.startsWith("/media/") && method === "GET") {
+      const relative = safePath(path.slice(7));
+      if (!relative.startsWith("covers/") || !/\.(jpg|png|webp)$/i.test(relative)) return json(404, { error: "Изображение не найдено." });
+      return await serveBlob(`files/${relative}`, "image/jpeg") || json(404, { error: "Изображение не найдено." });
+    }
     if (path.startsWith("/pdf/") && method === "GET") {
-      requireEnv();
       const relative = safePath(path.slice(5));
-      if (!relative.startsWith("uploads/books/") || !relative.endsWith(".pdf")) return json(404, { error: "PDF не найден." });
-      const { response, data } = await github(`public/${relative}`);
-      if (response.status === 404) return json(404, { error: "PDF-файл отсутствует в хранилище GitHub." });
-      let bytes;
-      if (data.content && data.encoding === "base64") {
-        bytes = Buffer.from(data.content.replace(/\\n/g, ""), "base64");
-      } else if (data.download_url) {
-        const raw = await fetch(data.download_url, { headers: { "Authorization": `Bearer ${process.env.GITHUB_TOKEN}`, "Accept": "application/vnd.github.raw" } });
-        if (!raw.ok) return json(502, { error: "Не удалось получить PDF из GitHub." });
-        bytes = Buffer.from(await raw.arrayBuffer());
-      } else {
-        return json(502, { error: "GitHub не предоставил содержимое PDF." });
+      if (relative.startsWith("blobs/books/") && relative.endsWith(".pdf")) {
+        return await serveBlob(`files/books/${relative.slice("blobs/books/".length)}`, "application/pdf") || json(404, { error: "PDF не найден." });
       }
-      return new Response(bytes, { status: 200, headers: { "Content-Type": "application/pdf", "Content-Length": String(bytes.length), "Cache-Control": "public, max-age=300", "Content-Disposition": "inline" } });
+      if (relative.startsWith("uploads/books/") && relative.endsWith(".pdf")) return await serveLegacyPdf(relative);
+      return json(404, { error: "PDF не найден." });
     }
+
     if (path === "/authors" && method === "GET") {
-      requireEnv();
-      const file = await getTextFile("public/authors.json");
-      let authors;
-      try { authors = JSON.parse(file.text); } catch { throw new Error("Файл authors.json содержит некорректный JSON"); }
-      return json(200, { items: Array.isArray(authors) ? authors : [] });
+      const authors = await readCollection("authors", "public/authors.json");
+      return json(200, { items: authors });
     }
-    // Публичное чтение каталога: список всегда берётся из того же GitHub-файла, который изменяет админ-панель.
     if (path === "/materials" && method === "GET") {
-      requireEnv();
-      const { list } = await readMaterials();
+      const list = await readCollection("materials", "public/materials.json");
       return json(200, { items: list });
     }
+
     if (!validSession(event)) return json(401, { error: "Необходима авторизация." });
-    requireEnv();
+    requireAuthEnv();
 
     if (path === "/authors" && method === "POST") {
       const body = JSON.parse(event.body || "{}");
       if (!body.name?.trim()) return json(400, { error: "Укажите ФИО автора." });
-      const file = await getTextFile("public/authors.json");
-      const authors = JSON.parse(file.text);
+      const authors = await readCollection("authors", "public/authors.json");
       const author = {
         id: crypto.randomUUID(),
-        name: String(body.name).trim().slice(0,160),
-        position: String(body.position || "").trim().slice(0,200),
-        qualification: String(body.qualification || "").trim().slice(0,200),
-        bio: String(body.bio || "").slice(0,5000),
-        photo: String(body.photo || "")
+        name: String(body.name).trim().slice(0, 160),
+        position: String(body.position || "").trim().slice(0, 200),
+        qualification: String(body.qualification || "").trim().slice(0, 200),
+        bio: String(body.bio || "").slice(0, 5000),
+        photo: String(body.photo || "").trim().slice(0, 2000)
       };
       authors.push(author);
-      await putFile("public/authors.json", Buffer.from(JSON.stringify(authors,null,2)+"\n").toString("base64"), `Добавлен автор: ${author.name}`, file.sha);
+      await saveCollection("authors", authors);
       return json(201, { item: author });
     }
     const authorMatch = path.match(/^\/authors\/([^/]+)$/);
-    if (authorMatch && ["PUT","DELETE"].includes(method)) {
+    if (authorMatch && ["PUT", "DELETE"].includes(method)) {
       const id = decodeURIComponent(authorMatch[1]);
-      const file = await getTextFile("public/authors.json");
-      const authors = JSON.parse(file.text);
+      const authors = await readCollection("authors", "public/authors.json");
       const index = authors.findIndex(x => String(x.id) === id);
       if (index < 0) return json(404, { error: "Автор не найден." });
       if (method === "DELETE") {
-        const { list } = await readMaterials();
-        if (list.some(x => x.authorId === id || (!x.authorId && x.author === authors[index].name))) return json(409, { error: "Нельзя удалить автора, пока к нему привязаны публикации." });
-        authors.splice(index,1);
-        await putFile("public/authors.json", Buffer.from(JSON.stringify(authors,null,2)+"\n").toString("base64"), "Удалён автор", file.sha);
+        const list = await readCollection("materials", "public/materials.json");
+        if (list.some(x => x.authorId === id || (!x.authorId && x.author === authors[index].name))) {
+          return json(409, { error: "Нельзя удалить автора, пока к нему привязаны публикации." });
+        }
+        authors.splice(index, 1);
+        await saveCollection("authors", authors);
         return json(200, { deleted: true });
       }
       const body = JSON.parse(event.body || "{}");
       if (!body.name?.trim()) return json(400, { error: "Укажите ФИО автора." });
-      authors[index] = { ...authors[index],
-        name: String(body.name).trim().slice(0,160),
-        position: String(body.position || "").trim().slice(0,200),
-        qualification: String(body.qualification || "").trim().slice(0,200),
-        bio: String(body.bio || "").slice(0,5000),
-        photo: String(body.photo || authors[index].photo || "")
+      authors[index] = {
+        ...authors[index],
+        name: String(body.name).trim().slice(0, 160),
+        position: String(body.position || "").trim().slice(0, 200),
+        qualification: String(body.qualification || "").trim().slice(0, 200),
+        bio: String(body.bio || "").slice(0, 5000),
+        photo: String(body.photo || authors[index].photo || "").slice(0, 2000)
       };
-      await putFile("public/authors.json", Buffer.from(JSON.stringify(authors,null,2)+"\n").toString("base64"), `Обновлён автор: ${authors[index].name}`, file.sha);
+      await saveCollection("authors", authors);
       return json(200, { item: authors[index] });
     }
+
     if (path === "/materials" && method === "POST") {
       const body = JSON.parse(event.body || "{}");
       if (!body.title?.trim() || !body.authorId) return json(400, { error: "Укажите название и выберите автора." });
-      const authorFile = await getTextFile("public/authors.json");
-      const authors = JSON.parse(authorFile.text);
+      const authors = await readCollection("authors", "public/authors.json");
       const author = authors.find(x => x.id === body.authorId);
       if (!author) return json(400, { error: "Выбранный автор не найден." });
       const pdf = decodeUpload(body.pdfUpload, "books", ["application/pdf"]);
-      const cover = decodeUpload(body.coverUpload, "covers", ["image/jpeg","image/png","image/webp"]);
+      const cover = decodeUpload(body.coverUpload, "covers", ["image/jpeg", "image/png", "image/webp"]);
       if (!cover) return json(400, { error: "Загрузите изображение обложки." });
-      if (pdf) await putFile(pdf.path, pdf.buffer.toString("base64"), `Добавлен PDF: ${body.title}`);
-      if (cover) await putFile(cover.path, cover.buffer.toString("base64"), `Добавлена обложка: ${body.title}`);
-      const { list, sha } = await readMaterials();
+      await Promise.all([saveUpload(pdf), saveUpload(cover)]);
+      const list = await readCollection("materials", "public/materials.json");
       const item = {
         id: crypto.randomUUID(),
         title: String(body.title).trim().slice(0, 200),
@@ -218,39 +249,36 @@ async function legacyHandler(event) {
         authorId: author.id,
         author: author.name,
         category: String(body.category || "Методические материалы").trim().slice(0, 100),
-        date: String(body.date || new Date().toISOString().slice(0,10)).slice(0,10),
-        cover: cover ? `/${cover.path.replace(/^public\//,"")}` : "",
-        file: pdf ? `/${pdf.path.replace(/^public\//,"")}` : String(body.file || "")
+        date: String(body.date || new Date().toISOString().slice(0, 10)).slice(0, 10),
+        cover: `/.netlify/functions/api/media/${cover.key.slice("files/".length)}`,
+        file: pdf ? `/blobs/${pdf.key.slice("files/".length)}` : String(body.file || "")
       };
       list.unshift(item);
-      await saveMaterials(list, sha, `Добавлена публикация: ${item.title}`);
+      await saveCollection("materials", list);
       return json(201, { item });
     }
 
     const match = path.match(/^\/materials\/([^/]+)$/);
-    if (match && ["PUT","DELETE"].includes(method)) {
+    if (match && ["PUT", "DELETE"].includes(method)) {
       const id = decodeURIComponent(match[1]);
-      const { list, sha } = await readMaterials();
+      const list = await readCollection("materials", "public/materials.json");
       const index = list.findIndex(x => String(x.id) === id);
       if (index < 0) return json(404, { error: "Материал не найден." });
       const old = list[index];
       if (method === "DELETE") {
         list.splice(index, 1);
-        await saveMaterials(list, sha, `Удалена публикация: ${old.title}`);
-        // Файлы остаются в репозитории как резерв; при необходимости их можно удалить вручную.
+        await saveCollection("materials", list);
         return json(200, { deleted: true });
       }
       const body = JSON.parse(event.body || "{}");
       if (!body.title?.trim() || !body.authorId) return json(400, { error: "Укажите название и выберите автора." });
-      const authorFile = await getTextFile("public/authors.json");
-      const authors = JSON.parse(authorFile.text);
+      const authors = await readCollection("authors", "public/authors.json");
       const author = authors.find(x => x.id === body.authorId);
       if (!author) return json(400, { error: "Выбранный автор не найден." });
       const pdf = decodeUpload(body.pdfUpload, "books", ["application/pdf"]);
-      const cover = decodeUpload(body.coverUpload, "covers", ["image/jpeg","image/png","image/webp"]);
+      const cover = decodeUpload(body.coverUpload, "covers", ["image/jpeg", "image/png", "image/webp"]);
       if (!cover && !old.cover) return json(400, { error: "Загрузите изображение обложки." });
-      if (pdf) await putFile(pdf.path, pdf.buffer.toString("base64"), `Обновлён PDF: ${body.title}`);
-      if (cover) await putFile(cover.path, cover.buffer.toString("base64"), `Обновлена обложка: ${body.title}`);
+      await Promise.all([saveUpload(pdf), saveUpload(cover)]);
       list[index] = {
         ...old,
         title: String(body.title).trim().slice(0, 200),
@@ -259,11 +287,11 @@ async function legacyHandler(event) {
         authorId: author.id,
         author: author.name,
         category: String(body.category || "Методические материалы").trim().slice(0, 100),
-        date: String(body.date || old.date || "").slice(0,10),
-        cover: cover ? `/${cover.path.replace(/^public\//,"")}` : old.cover,
-        file: pdf ? `/${pdf.path.replace(/^public\//,"")}` : old.file
+        date: String(body.date || old.date || "").slice(0, 10),
+        cover: cover ? `/.netlify/functions/api/media/${cover.key.slice("files/".length)}` : old.cover,
+        file: pdf ? `/blobs/${pdf.key.slice("files/".length)}` : old.file
       };
-      await saveMaterials(list, sha, `Обновлена публикация: ${list[index].title}`);
+      await saveCollection("materials", list);
       return json(200, { item: list[index] });
     }
     return json(404, { error: "Маршрут не найден." });
@@ -272,17 +300,14 @@ async function legacyHandler(event) {
     return json(500, { error: error.message || "Внутренняя ошибка сервера." });
   }
 }
-export default async (request) => {
-  const headers = Object.fromEntries(request.headers.entries());
 
+export default async request => {
+  const headers = Object.fromEntries(request.headers.entries());
   const event = {
     httpMethod: request.method,
     path: new URL(request.url).pathname,
     headers,
-    body: ["GET", "HEAD"].includes(request.method)
-      ? null
-      : await request.text()
+    body: ["GET", "HEAD"].includes(request.method) ? null : await request.text()
   };
-
-  return await legacyHandler(event);
+  return await handler(event);
 };
